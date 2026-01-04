@@ -58,9 +58,21 @@ def save_data(date, subject, minutes, notes):
         st.error(f"保存エラー: {e}")
         return False
 
+# 削除用の関数
+def delete_row(index_to_delete):
+    df, sheet_name = load_data()
+    try:
+        # 指定された行（index）を削除
+        df = df.drop(index_to_delete)
+        conn.update(worksheet=sheet_name, data=df)
+        return True
+    except Exception as e:
+        st.error(f"削除エラー: {e}")
+        return False
+
 # --- メイン画面 ---
 
-# 1. 今日の学習時間を表示（日本時間で計算）
+# 1. 今日の学習時間を表示
 df, _ = load_data()
 today_str = datetime.now(JST).strftime("%Y-%m-%d")
 
@@ -102,7 +114,6 @@ else:
         end_time = time.time()
         duration_sec = end_time - st.session_state.start_time
         duration_min = int(duration_sec // 60)
-        
         if duration_min < 1:
             duration_min = 1
             
@@ -124,12 +135,31 @@ with st.expander("➕ タイマーを使わず手動で追加"):
             st.success("追加しました！")
             st.rerun()
 
-# 4. グラフ
+# 4. 履歴と削除（新機能）
+st.markdown("---")
+with st.expander("🗑️ 履歴の確認・削除（間違えた時はここ！）"):
+    if not df.empty:
+        st.caption("直近の5件を表示しています。削除ボタンを押すとすぐに消えます。")
+        # 最新のものが上に来るように並び替えて表示
+        recent_df = df.tail(5).iloc[::-1]
+        
+        for index, row in recent_df.iterrows():
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                st.text(f"【{row['date']}】{row['subject']} ({row['minutes']}分)\nメモ: {row['notes']}")
+            with col2:
+                # 削除ボタン（ユニークなキーを設定）
+                if st.button("削除", key=f"del_{index}"):
+                    delete_row(index)
+                    st.toast("削除しました🗑️")
+                    time.sleep(1)
+                    st.rerun()
+    else:
+        st.info("まだ記録がありません。")
+
+# 5. グラフ
 if not df.empty and "minutes" in df.columns:
-    st.markdown("---")
     st.subheader("📊 進捗データ")
-    
-    # 【前回エラーが出ていたのはここです】正しくコピーしてください
     tab1, tab2 = st.tabs(["科目割合", "目標達成"])
     
     with tab1:
