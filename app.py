@@ -2,12 +2,15 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import time
-from datetime import datetime
+from datetime import datetime, timedelta, timezone # 変更：timezoneなどを追加
 from streamlit_gsheets import GSheetsConnection
 
 # --- ページ設定 ---
 st.set_page_config(page_title="行政書士学習トラッカー", layout="centered")
 st.title("⏱️ 行政書士 合格タイマー")
+
+# --- 日本時間（JST）の定義 ---
+JST = timezone(timedelta(hours=9), 'JST')
 
 # --- セッション状態の管理 ---
 if "start_time" not in st.session_state:
@@ -24,7 +27,6 @@ except Exception as e:
 
 def load_data():
     try:
-        # シート1(日本語) または Sheet1(英語) を自動判別
         try:
             df = conn.read(worksheet="シート1", ttl=0)
             return df, "シート1"
@@ -37,7 +39,6 @@ def load_data():
 def save_data(date, subject, minutes, notes):
     df, sheet_name = load_data()
     
-    # 新しいデータ
     new_data = pd.DataFrame([{
         "date": date,
         "subject": subject,
@@ -45,7 +46,6 @@ def save_data(date, subject, minutes, notes):
         "notes": notes
     }])
     
-    # 結合して保存
     if df.empty:
         updated_df = new_data
     else:
@@ -60,9 +60,10 @@ def save_data(date, subject, minutes, notes):
 
 # --- メイン画面 ---
 
-# 1. 今日の学習時間を表示
+# 1. 今日の学習時間を表示（日本時間で計算）
 df, _ = load_data()
-today_str = datetime.now().strftime("%Y-%m-%d")
+# 【重要】ここを日本時間(JST)に変更
+today_str = datetime.now(JST).strftime("%Y-%m-%d")
 
 if not df.empty and "date" in df.columns and "minutes" in df.columns:
     df["date"] = df["date"].astype(str)
@@ -73,18 +74,16 @@ else:
 
 hours = int(total_today // 60)
 mins = int(total_today % 60)
-st.metric(label="📅 今日の学習合計", value=f"{hours}時間 {mins}分")
+st.metric(label=f"📅 今日の学習合計 ({today_str})", value=f"{hours}時間 {mins}分")
 
 st.markdown("---")
 
 # 2. タイマー機能
 st.subheader("✍️ 学習を記録する")
 
-# 科目とメモは常に表示（入力し忘れ防止）
 subject = st.radio("科目", ["憲法", "民法", "行政法", "商法・会社法", "基礎知識"], horizontal=True)
 notes = st.text_input("一言メモ", placeholder="例: 過去問 P.20〜30、条文読み込みなど")
 
-# ボタンの表示切替
 if not st.session_state.is_studying:
     # --- 停止中 ---
     st.info("準備ができたら「開始」を押してください。")
@@ -94,33 +93,29 @@ if not st.session_state.is_studying:
         st.rerun()
 else:
     # --- 計測中 ---
-    # 開始時刻を表示（カチカチ動かなくても安心）
-    start_dt = datetime.fromtimestamp(st.session_state.start_time)
+    # 【重要】開始時刻を日本時間(JST)に変換して表示
+    start_dt = datetime.fromtimestamp(st.session_state.start_time, JST)
     start_str = start_dt.strftime("%H:%M")
     
     st.success(f"🏃‍♂️ 学習中... （開始時刻: {start_str}）")
     st.caption("※画面の時間は動きませんが、裏で動いています。学習が終わったら「終了」を押してください。")
     
     if st.button("⏹ 終了して記録する", type="primary", use_container_width=True):
-        # 時間計算
         end_time = time.time()
         duration_sec = end_time - st.session_state.start_time
         duration_min = int(duration_sec // 60)
         
-        # 1分未満は1分とする
         if duration_min < 1:
             duration_min = 1
             
-        # 保存
         if save_data(today_str, subject, duration_min, notes):
             st.toast(f"お疲れ様でした！ {duration_min}分 記録しました🎉")
             time.sleep(1)
-            # リセット
             st.session_state.is_studying = False
             st.session_state.start_time = None
             st.rerun()
 
-# 3. 手動入力（タイマーを忘れた時用）
+# 3. 手動入力
 with st.expander("➕ タイマーを使わず手動で追加"):
     with st.form("manual_add"):
         m_subject = st.selectbox("科目", ["憲法", "民法", "行政法", "商法・会社法", "基礎知識"], key="m_sub")
@@ -135,20 +130,4 @@ with st.expander("➕ タイマーを使わず手動で追加"):
 if not df.empty and "minutes" in df.columns:
     st.markdown("---")
     st.subheader("📊 進捗データ")
-    tab1, tab2 = st.tabs(["科目割合", "目標達成"])
-    
-    with tab1:
-        fig = px.pie(df, values='minutes', names='subject', title='科目別比率')
-        st.plotly_chart(fig, use_container_width=True)
-    with tab2:
-        total_all = df["minutes"].sum()
-        goal = 800 * 60
-        prog = min(total_all / goal, 1.0)
-        st.progress(prog)
-        st.caption(f"全体累計: {int(total_all//60)}時間 / 目標800時間")
-
-# バグった時用のリセットボタン（画面一番下）
-st.markdown("<br><br>", unsafe_allow_html=True)
-if st.button("🔄 調子が悪い時はここを押してリセット"):
-    st.session_state.clear()
-    st.rerun()
+    tab1, tab2 = st
