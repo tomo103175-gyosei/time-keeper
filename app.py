@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import time
-from datetime import datetime, timedelta, timezone # 変更：timezoneなどを追加
+from datetime import datetime, timedelta, timezone
 from streamlit_gsheets import GSheetsConnection
 
 # --- ページ設定 ---
@@ -62,7 +62,6 @@ def save_data(date, subject, minutes, notes):
 
 # 1. 今日の学習時間を表示（日本時間で計算）
 df, _ = load_data()
-# 【重要】ここを日本時間(JST)に変更
 today_str = datetime.now(JST).strftime("%Y-%m-%d")
 
 if not df.empty and "date" in df.columns and "minutes" in df.columns:
@@ -93,7 +92,6 @@ if not st.session_state.is_studying:
         st.rerun()
 else:
     # --- 計測中 ---
-    # 【重要】開始時刻を日本時間(JST)に変換して表示
     start_dt = datetime.fromtimestamp(st.session_state.start_time, JST)
     start_str = start_dt.strftime("%H:%M")
     
@@ -130,4 +128,21 @@ with st.expander("➕ タイマーを使わず手動で追加"):
 if not df.empty and "minutes" in df.columns:
     st.markdown("---")
     st.subheader("📊 進捗データ")
-    tab1, tab2 = st
+    
+    # 【前回エラーが出ていたのはここです】正しくコピーしてください
+    tab1, tab2 = st.tabs(["科目割合", "目標達成"])
+    
+    with tab1:
+        fig = px.pie(df, values='minutes', names='subject', title='科目別比率')
+        st.plotly_chart(fig, use_container_width=True)
+    with tab2:
+        total_all = df["minutes"].sum()
+        goal = 800 * 60
+        prog = min(total_all / goal, 1.0)
+        st.progress(prog)
+        st.caption(f"全体累計: {int(total_all//60)}時間 / 目標800時間")
+
+st.markdown("<br><br>", unsafe_allow_html=True)
+if st.button("🔄 調子が悪い時はここを押してリセット"):
+    st.session_state.clear()
+    st.rerun()
