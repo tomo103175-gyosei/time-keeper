@@ -13,7 +13,8 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 def load_data():
     # キャッシュを使わず常に最新を取得（ttl=0）
     try:
-        df = conn.read(worksheet="Sheet1", ttl=0)
+        # 【修正点1】ここを "シート1" に変更（日本語環境のデフォルト名に合わせる）
+        df = conn.read(worksheet="シート1", ttl=0)
         # 空の場合や型変換のエラー防止
         if df.empty:
             return pd.DataFrame(columns=["date", "subject", "minutes", "notes"])
@@ -31,7 +32,8 @@ def save_data(date, subject, minutes, notes):
     }])
     updated_df = pd.concat([df, new_data], ignore_index=True)
     # スプレッドシートを更新
-    conn.update(worksheet="Sheet1", data=updated_df)
+    # 【修正点2】ここも "シート1" に変更
+    conn.update(worksheet="シート1", data=updated_df)
 
 # --- UI ---
 st.title("📱 行政書士 合格トラッカー")
@@ -39,7 +41,11 @@ st.title("📱 行政書士 合格トラッカー")
 # 今日の学習時間を計算して表示
 df = load_data()
 today_str = datetime.now().strftime("%Y-%m-%d")
-if not df.empty and "date" in df.columns:
+
+# データフレームの確認と集計
+if not df.empty and "date" in df.columns and "minutes" in df.columns:
+    # date列を文字列型に変換して比較（エラー防止）
+    df["date"] = df["date"].astype(str)
     today_df = df[df["date"] == today_str]
     total_minutes = today_df["minutes"].sum() if not today_df.empty else 0
 else:
@@ -63,7 +69,7 @@ with st.form("log_form", clear_on_submit=True):
         st.rerun() # 画面更新
 
 # --- グラフ ---
-if not df.empty:
+if not df.empty and "minutes" in df.columns:
     st.markdown("---")
     st.subheader("📊 進捗データ")
     
