@@ -12,6 +12,17 @@ st.title("⏱️ 行政書士 合格タイマー")
 # --- 日本時間（JST）の定義 ---
 JST = timezone(timedelta(hours=9), 'JST')
 
+# --- 【重要】スリープ対策：URLから状態を復元 ---
+# スマホがスリープしてリロードされても、URLに記録された時間から復帰する処理
+if "start" in st.query_params:
+    try:
+        # 文字列として保存された時間を数値に戻す
+        saved_start_time = float(st.query_params["start"])
+        st.session_state.start_time = saved_start_time
+        st.session_state.is_studying = True
+    except:
+        pass
+
 # --- セッション状態の管理 ---
 if "start_time" not in st.session_state:
     st.session_state.start_time = None
@@ -62,7 +73,6 @@ def save_data(date, subject, minutes, notes):
 def delete_row(index_to_delete):
     df, sheet_name = load_data()
     try:
-        # 指定された行（index）を削除
         df = df.drop(index_to_delete)
         conn.update(worksheet=sheet_name, data=df)
         return True
@@ -92,8 +102,16 @@ st.markdown("---")
 # 2. タイマー機能
 st.subheader("✍️ 学習を記録する")
 
-subject = st.radio("科目", ["憲法", "民法", "行政法", "商法・会社法", "基礎知識"], horizontal=True)
-notes = st.text_input("一言メモ", placeholder="例: 過去問 P.20〜30、条文読み込みなど")
+# 科目をURLから復元（もしあれば）、なければデフォルト
+default_subject_index = 0
+if "subject" in st.query_params:
+    saved_sub = st.query_params["subject"]
+    options = ["憲法", "民法", "行政法", "商法・会社法", "基礎知識"]
+    if saved_sub in options:
+        default_subject_index = options.index(saved_sub)
+
+subject = st.radio("科目", ["憲法", "民法", "行政法", "商法・会社法", "基礎知識"], index=default_subject_index, horizontal=True)
+notes = st.text_input("一言メモ", placeholder="例: 過去問 P.20〜30")
 
 if not st.session_state.is_studying:
     # --- 停止中 ---
@@ -101,6 +119,11 @@ if not st.session_state.is_studying:
     if st.button("▶ 学習スタート", type="primary", use_container_width=True):
         st.session_state.is_studying = True
         st.session_state.start_time = time.time()
+        
+        # 【スリープ対策】URLに開始時間と科目を書き込む
+        st.query_params["start"] = str(st.session_state.start_time)
+        st.query_params["subject"] = subject
+        
         st.rerun()
 else:
     # --- 計測中 ---
@@ -108,20 +131,27 @@ else:
     start_str = start_dt.strftime("%H:%M")
     
     st.success(f"🏃‍♂️ 学習中... （開始時刻: {start_str}）")
-    st.caption("※画面の時間は動きませんが、裏で動いています。学習が終わったら「終了」を押してください。")
+    st.warning("⚠️ スマホがスリープしても裏で計測されています。「終了」を押す時に画面がリロードされても大丈夫です。")
     
     if st.button("⏹ 終了して記録する", type="primary", use_container_width=True):
         end_time = time.time()
         duration_sec = end_time - st.session_state.start_time
         duration_min = int(duration_sec // 60)
+        
         if duration_min < 1:
             duration_min = 1
             
         if save_data(today_str, subject, duration_min, notes):
             st.toast(f"お疲れ様でした！ {duration_min}分 記録しました🎉")
             time.sleep(1)
+            
+            # リセット処理
             st.session_state.is_studying = False
             st.session_state.start_time = None
+            
+            # 【スリープ対策】URLの記録を消す
+            st.query_params.clear()
+            
             st.rerun()
 
 # 3. 手動入力
@@ -135,20 +165,17 @@ with st.expander("➕ タイマーを使わず手動で追加"):
             st.success("追加しました！")
             st.rerun()
 
-# 4. 履歴と削除（新機能）
+# 4. 履歴と削除
 st.markdown("---")
 with st.expander("🗑️ 履歴の確認・削除（間違えた時はここ！）"):
     if not df.empty:
         st.caption("直近の5件を表示しています。削除ボタンを押すとすぐに消えます。")
-        # 最新のものが上に来るように並び替えて表示
         recent_df = df.tail(5).iloc[::-1]
-        
         for index, row in recent_df.iterrows():
             col1, col2 = st.columns([3, 1])
             with col1:
                 st.text(f"【{row['date']}】{row['subject']} ({row['minutes']}分)\nメモ: {row['notes']}")
             with col2:
-                # 削除ボタン（ユニークなキーを設定）
                 if st.button("削除", key=f"del_{index}"):
                     delete_row(index)
                     st.toast("削除しました🗑️")
@@ -161,7 +188,6 @@ with st.expander("🗑️ 履歴の確認・削除（間違えた時はここ！
 if not df.empty and "minutes" in df.columns:
     st.subheader("📊 進捗データ")
     tab1, tab2 = st.tabs(["科目割合", "目標達成"])
-    
     with tab1:
         fig = px.pie(df, values='minutes', names='subject', title='科目別比率')
         st.plotly_chart(fig, use_container_width=True)
@@ -175,4 +201,6 @@ if not df.empty and "minutes" in df.columns:
 st.markdown("<br><br>", unsafe_allow_html=True)
 if st.button("🔄 調子が悪い時はここを押してリセット"):
     st.session_state.clear()
+    # URLもクリア
+    st.query_params.clear()
     st.rerun()
